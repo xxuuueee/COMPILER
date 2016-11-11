@@ -356,7 +356,7 @@ class Parser {
       root.symbolId = currFunc;
 
       match(TokenType.CPAREN, "Expected ')'");
-      root.addChild(declarations());
+      root.addChild(declarations(null));
       root.addChild(statement_seq());
       match(TokenType.FED, "Expected FED");
     } else {
@@ -426,38 +426,37 @@ class Parser {
     return root;
   }
 
-  private Tree declarations() {
+  private Tree declarations(Tree root) {
     // <declarations> ::= <decl>; <declarations> | ε
     TokenType[] FIRST = {TokenType.TYPE_INT, TokenType.TYPE_DOUBLE};
     TokenType[] FOLLOW = {TokenType.IF, TokenType.WHILE, TokenType.PRINT, TokenType.RETURN, TokenType.ID, TokenType.SEMICOLON};
 
-    Tree root = new Tree("declarations");
+    if (root == null) {
+      root = new Tree("declarations");
+    }
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(decl());
+      decl(root);
       match(TokenType.SEMICOLON, "Expected a semicolon");
-      Tree decls = declarations();
-      root.addChild();
+      declarations(root);
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      // all is well
     } else {
       error(ll);
     }
     return root;
   }
 
-  private Tree decl() {
+  private Tree decl(Tree root) {
     // <decl> := <type> <varlist>
     TokenType[] FIRST = {TokenType.TYPE_INT, TokenType.TYPE_DOUBLE};
     TokenType[] FOLLOW = {TokenType.SEMICOLON};
 
-    Tree root = new Tree("decl");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
       TokenType symType = ll.type;
-
-      root.addChild(type());
-      root.addChild(varlist(symType));
+      type();
+      varlist(root, symType);
     } else {
       error(ll);
     }
@@ -482,37 +481,34 @@ class Parser {
     return root;
   }
 
-  private Tree varlist(TokenType symType) {
+  private Tree varlist(Tree root, TokenType symType) {
     // <varlist> ::= <var><varlist’>
     TokenType[] FIRST = {TokenType.ID};
     TokenType[] FOLLOW = {TokenType.SEMICOLON};
 
-    Tree root = new Tree("varlist");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-
       Symbol variable = new Symbol(ll.lexeme, symType,0);
       symbolTables.get(currFunc).add(variable);
       root.addChild(var());
-      root.addChild(varlistPrime(symType));
+      varlistPrime(root, symType);
     } else {
       error(ll);
     }
     return root;
   }
 
-  private Tree varlistPrime(TokenType symType) {
+  private Tree varlistPrime(Tree root, TokenType symType) {
     // <varlist’> ::= , <varlist> | ε
     TokenType[] FIRST = {TokenType.COMMA};
     TokenType[] FOLLOW = {TokenType.SEMICOLON};
 
-    Tree root = new Tree("varlist'");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(match(TokenType.COMMA, "Expected Comma"));
-      root.addChild(varlist(symType));
+      match(TokenType.COMMA, "Expected Comma");
+      varlist(root, symType);
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      // all is well
     } else {
       error(ll);
     }
@@ -543,17 +539,16 @@ class Parser {
     TokenType[] FIRST = {TokenType.SEMICOLON};
     TokenType[] FOLLOW = {TokenType.PERIOD, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.FED};
 
-    Tree root = new Tree("statemetnSeq'");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(match(TokenType.SEMICOLON, "Expected ;"));
-      root.addChild(statement_seq());
+      match(TokenType.SEMICOLON, "Expected ;");
+      return statement_seq();
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      return epsilon();
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad state");
   }
 
 
@@ -570,56 +565,66 @@ class Parser {
     TokenType[] RETURN_FIRST = {TokenType.RETURN};
     TokenType[] FOLLOW = {TokenType.SEMICOLON, TokenType.PERIOD, TokenType.FI, TokenType.ELSE, TokenType.OD};
 
-    Tree root = new Tree("statement");
+    Tree root;
     Token ll = lookAhead();
     if (in(VAR_EXP_FIRST, ll.type)) {
+      root = new Tree("=");
       root.addChild(var());
-      root.addChild(match(TokenType.ASSIGN, "Expected assignment"));
+      match(TokenType.ASSIGN, "Expected assignment");
       root.addChild(expr());
+      return root;
     } else if (in(IF_FIRST, ll.type)) {
-      root.addChild(match(TokenType.IF, "Expected if"));
+      root = new Tree("if");
+      match(TokenType.IF, "Expected if");
       root.addChild(bexpr());
-      root.addChild(match(TokenType.THEN, "Expected then"));
+      match(TokenType.THEN, "Expected then");
       root.addChild(statement_seq());
-      root.addChild(ifbody());
+      return ifbody(root);
     } else if (in(WHILE_FIRST, ll.type)) {
-      root.addChild(match(TokenType.WHILE, "Expected while"));
+      root = new Tree("while");
+      match(TokenType.WHILE, "Expected while");
       root.addChild(bexpr());
-      root.addChild(match(TokenType.DO, "Expected DO"));
+      match(TokenType.DO, "Expected DO");
       root.addChild(statement_seq());
-      root.addChild(match(TokenType.OD, "Expected OD"));
+      match(TokenType.OD, "Expected OD");
+      return root;
     } else if (in(PRINT_FIRST, ll.type)) {
-      root.addChild(match(TokenType.PRINT, "expected print"));
+      root = new Tree("print");
+      match(TokenType.PRINT, "expected print");
       root.addChild(expr());
+      return root;
     } else if (in(RETURN_FIRST, ll.type)) {
-      root.addChild(match(TokenType.RETURN, "Expected return"));
+      root = new Tree("return");
+      match(TokenType.RETURN, "Expected return");
       root.addChild(expr());
+      return root;
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      return epsilon();
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad State");
   }
 
-  private Tree ifbody() {
+  private Tree ifbody(Tree ifHead) {
     // <ifbody> ::= fi | else <statement_seq> fi
     TokenType[] FI_FIRST = {TokenType.FI};
     TokenType[] ELSE_FIRST = {TokenType.ELSE};
     TokenType[] FOLLOW = {TokenType.PERIOD, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.SEMICOLON};
 
-    Tree root = new Tree("ifbody");
     Token ll = lookAhead();
     if (in(FI_FIRST, ll.type)) {
-      root.addChild(match(TokenType.FI, "Expected fi"));
+      match(TokenType.FI, "Expected fi");
+      return ifHead;
     } else if (in(ELSE_FIRST, ll.type)) {
-      root.addChild(match(TokenType.ELSE, "Expected else"));
-      root.addChild(statement_seq());
-      root.addChild(match(TokenType.FI, "Expected fi"));
+      ifHead.addChild(statement_seq());
+      match(TokenType.FI, "Expected fi");
+      return ifHead;
     } else {
       error(ll);
     }
-    return root;
+
+    throw new IllegalStateException("Bad State");
   }
 
 
@@ -628,43 +633,51 @@ class Parser {
     TokenType[] FIRST = {TokenType.ID, TokenType.NUM, TokenType.OPAREN, TokenType.MINUS};
     TokenType[] FOLLOW = {TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD};
 
-    Tree root = new Tree("expr");
+    Tree root = null;
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
       if (ll.type == TokenType.MINUS) {
-        root.addChild(new Leaf(getNextToken()));
+        root = new Leaf(getNextToken());
       }
-      root.addChild(term());
-      root.addChild(exprPrime());
+      Tree term = term();
+      if (root == null) {
+        return exprPrime(term);
+      } else {
+        root.addChild(exprPrime(term));
+        return root;
+      }
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad state");
   }
 
 
-  private Tree exprPrime() {
+  private Tree exprPrime(Tree lhs) {
     // <expr’> ::= +<term><expr’> | -<term><expr’> | ε
     TokenType[] PLUS_FIRST = {TokenType.PLUS};
     TokenType[] MINUS_FIRST = {TokenType.MINUS};
     TokenType[] FOLLOW = {TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD, TokenType.FED};
 
-    Tree root = new Tree("expr'");
+    Tree root = new Tree(null);
+    root.addChild(lhs);
     Token ll = lookAhead();
     if (in(PLUS_FIRST, ll.type)) {
-      root.addChild(match(TokenType.PLUS, "expected +"));
+      match(TokenType.PLUS, "expected +");
+      root.op = "+";
       root.addChild(term());
-      root.addChild(exprPrime());
+      return exprPrime(root);
     } else if (in(MINUS_FIRST, ll.type)) {
-      root.addChild(match(TokenType.MINUS, "expected -"));
+      match(TokenType.MINUS, "expected -");
+      root.op = "-";
       root.addChild(term());
-      root.addChild(exprPrime());
+      return exprPrime(root);
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      return lhs;
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad state");
   }
 
   private Tree term() {
@@ -672,45 +685,48 @@ class Parser {
     TokenType[] FIRST = {TokenType.ID, TokenType.NUM, TokenType.OPAREN};
     TokenType[] FOLLOW = {TokenType.PLUS, TokenType.MINUS, TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD};
 
-    Tree root = new Tree("term");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(factor());
-      root.addChild(termPrime());
+      Tree lhs = factor();
+      return termPrime(lhs);
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad state");
   }
 
 
-  private Tree termPrime() {
+  private Tree termPrime(Tree lhs) {
     // <term’> ::= *<factor><term’> | /<factor><term’> | %<factor><term’> | ε
     TokenType[] MUL_FIRST = {TokenType.MULT};
     TokenType[] DIV_FIRST = {TokenType.DIVIDE};
     TokenType[] MOD_FIRST = {TokenType.MOD};
     TokenType[] FOLLOW = {TokenType.PLUS, TokenType.MINUS, TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD, TokenType.FED};
 
-    Tree root = new Tree("term'");
+    Tree root = new Tree(null);
+    root.addChild(lhs);
+
     Token ll = lookAhead();
     if (in(MUL_FIRST, ll.type)) {
-      root.addChild(match(TokenType.MULT, "Expected *"));
+      root.op = "*";
+      match(TokenType.MULT, "Expected *");
       root.addChild(factor());
-      root.addChild(termPrime());
+      return termPrime(root);
     } else if (in(DIV_FIRST, ll.type)) {
-      root.addChild(match(TokenType.DIVIDE, "Expected /"));
+      root.op = "/";
+      match(TokenType.DIVIDE, "Expected /");
       root.addChild(factor());
-      root.addChild(termPrime());
+      return termPrime(root);
     } else if (in(MOD_FIRST, ll.type)) {
       root.addChild(match(TokenType.MOD, "Expected %"));
       root.addChild(factor());
-      root.addChild(termPrime());
+      return termPrime(root);
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      return lhs;
     } else {
       error(ll);
     }
-    return root;
+    throw new IllegalStateException("Bad state");
   }
 
   private Tree factor() {
@@ -718,48 +734,41 @@ class Parser {
     TokenType[] VAR_FIRST = {TokenType.ID};
     TokenType[] NUM_FIRST = {TokenType.NUM};
     TokenType[] EXPR_FIRST = {TokenType.OPAREN};
-    TokenType[] FNAME_FIRST = {TokenType.ID};
     TokenType[] FOLLOW = {TokenType.MULT, TokenType.DIVIDE, TokenType.MOD, TokenType.PLUS, TokenType.MINUS, TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD};
 
-    Tree root = new Tree("factor");
     Token ll = lookAhead();
     if (in(VAR_FIRST, ll.type)) {
-      root.addChild(var());
-      root.addChild(factorPrime());
+      Tree var = var();
+      factorPrime(var);
+      return var;
     } else if (in(NUM_FIRST, ll.type)) {
-      root.addChild(match(TokenType.NUM, ""));
+      return match(TokenType.NUM, "");
     } else if (in(EXPR_FIRST, ll.type)) {
-      root.addChild(match(TokenType.OPAREN, ""));
-      root.addChild(expr());
-      root.addChild(match(TokenType.CPAREN, ""));
-    } else if (in(FNAME_FIRST, ll.type)) {
-      root.addChild(fname());
-      root.addChild(match(TokenType.OPAREN, "Expected '('"));
-      root.addChild(exprseq());
-      root.addChild(match(TokenType.CPAREN, "Expected ')'"));
+      match(TokenType.OPAREN, "");
+      Tree expr = expr();
+      match(TokenType.CPAREN, "");
+      return expr;
     } else {
       error(ll);
     }
-    return root;
+    throw new RuntimeException("Illegal state");
   }
 
-  private Tree factorPrime() {
+  private void factorPrime(Tree functionName) {
     // <factor> ::= (<exprseq>) | ε
     TokenType[] FIRST = {TokenType.OPAREN};
     TokenType[] FOLLOW = {TokenType.MULT, TokenType.DIVIDE, TokenType.MOD, TokenType.PLUS, TokenType.MINUS, TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD, TokenType.FED};
 
-    Tree root = new Tree("factor'");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(match(TokenType.OPAREN, ""));
-      root.addChild(exprseq());
-      root.addChild(match(TokenType.CPAREN, "Missing )"));
+      match(TokenType.OPAREN, "");
+      functionName.addChild(exprseq());
+      match(TokenType.CPAREN, "Missing )");
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      // is ok now :)
     } else {
       error(ll);
     }
-    return root;
   }
 
 
@@ -924,8 +933,7 @@ class Parser {
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
       root.addChild(match(TokenType.ID, ""));
-      root.addChild(arrayIndex());
-
+      arrayIndex(root);
     } else if (in(FOLLOW, ll.type)) {
       root.addChild(epsilon());
     } else {
@@ -934,7 +942,7 @@ class Parser {
     return root;
   }
 
-  private Tree arrayIndex() {
+  private Tree arrayIndex(Tree parent) {
     // <arrayIndex> ::= [<expr>] | ε
     TokenType[] FIRST = {TokenType.OSPAREN};
     TokenType[] FOLLOW = {TokenType.COMMA, TokenType.ASSIGN, TokenType.MULT, TokenType.DIVIDE, TokenType.MOD, TokenType.PLUS, TokenType.MINUS, TokenType.OPAREN, TokenType.CPAREN, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FED, TokenType.OPAREN};
@@ -942,11 +950,12 @@ class Parser {
     Tree root = new Tree("arrayIndex");
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
-      root.addChild(match(TokenType.OSPAREN, ""));
+      match(TokenType.OSPAREN, "");
       root.addChild(expr());
-      root.addChild(match(TokenType.CSPAREN, "Expected ']'"));
+      match(TokenType.CSPAREN, "Expected ']'");
+      parent.addChild(root);
     } else if (in(FOLLOW, ll.type)) {
-      root.addChild(epsilon());
+      // all is well
     } else {
       error(ll);
     }
@@ -957,7 +966,7 @@ class Parser {
     Tree program = new Tree("program");
     program.addChild(fdecls());
     currFunc = 0;
-    program.addChild(declarations());
+    program.addChild(declarations(null));
     program.addChild(statement_seq());
     program.addChild(match(TokenType.PERIOD, "Expected period"));
     return program;

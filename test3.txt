@@ -1,0 +1,18 @@
+def double f(double x, double y)
+	double a, b;
+	double c;
+	a[x+y]=x+y*y;
+	c = (b / (3 * b)) * a - 1;
+	if (a < b) then
+	  return b;
+	fi;
+
+	if (a >= b) then
+	  return a;
+	fi;
+	return a
+fed;
+
+double s;
+s=f(2.4,1)+f(1.3,-2.4)+f(1.0,0.1);
+print(s).
