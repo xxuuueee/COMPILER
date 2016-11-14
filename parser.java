@@ -740,11 +740,8 @@ class Parser {
 
     Token ll = lookAhead();
     if (in(VAR_FIRST, ll.type)) {
-      Tree fcall = new Tree("fcall");
       Tree var = var();
-      fcall.addChild(var);
-      factorPrime(fcall);
-      return fcall;
+      return factorPrime(var);
     } else if (in(NUM_FIRST, ll.type)) {
       return match(TokenType.NUM, "");
     } else if (in(EXPR_FIRST, ll.type)) {
@@ -758,7 +755,7 @@ class Parser {
     throw new RuntimeException("Illegal state");
   }
 
-  private void factorPrime(Tree functionName) {
+  private Tree factorPrime(Tree functionName) {
     // <factor> ::= (<exprseq>) | ε
     TokenType[] FIRST = {TokenType.OPAREN};
     TokenType[] FOLLOW = {TokenType.MULT, TokenType.DIVIDE, TokenType.MOD, TokenType.PLUS, TokenType.MINUS, TokenType.CPAREN, TokenType.COMMA, TokenType.SEMICOLON, TokenType.LT, TokenType.GT, TokenType.EQ, TokenType.LE, TokenType.GE, TokenType.NE, TokenType.CSPAREN, TokenType.FI, TokenType.ELSE, TokenType.OD, TokenType.PERIOD, TokenType.FED};
@@ -766,13 +763,18 @@ class Parser {
     Token ll = lookAhead();
     if (in(FIRST, ll.type)) {
       match(TokenType.OPAREN, "");
-      functionName.addChild(exprseq(null));
+      Tree fcall = new Tree("fcall");
+      fcall.addChild(functionName);
+      fcall.addChild(exprseq(null));
       match(TokenType.CPAREN, "Missing )");
+      return fcall;
     } else if (in(FOLLOW, ll.type)) {
+      return functionName;
       // is ok now :)
     } else {
       error(ll);
     }
+    throw new IllegalStateException();
   }
 
 
