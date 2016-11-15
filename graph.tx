@@ -1,0 +1,9 @@
+digraph AST {
+  a0 [label="=: null"]
+  node [shape=underline];
+  a0 -> a1;
+  a1 [label="i: 1"]
+  node [shape=underline];
+  a0 -> a2;
+  a2 [label="1: null"]
+}

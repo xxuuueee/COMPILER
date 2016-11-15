@@ -585,7 +585,8 @@ class Parser {
         Token ll = lookAhead();
         if (in(VAR_EXP_FIRST, ll.type)) {
             root = new Tree("=");
-            root.addChild(var());
+            Tree var = var();
+            root.addChild(var);
             match(TokenType.ASSIGN, "Expected assignment");
             root.addChild(expr());
             return root;
@@ -963,7 +964,12 @@ class Parser {
         Token ll = lookAhead();
         if (in(FIRST, ll.type)) {
             Tree id = match(TokenType.ID, "");
-            return arrayIndex(id);
+            Tree arrIndex = arrayIndex(id);
+            int symId = symbolTables.get(currFunc).findSymbol(id.op);
+            if (symId >= 0) {
+                id.symbolId = symId;
+            }
+            return arrIndex;
         } else if (in(FOLLOW, ll.type)) {
             // all is well
             return null;
@@ -1150,6 +1156,7 @@ class Interpreter {
         StackFrame stackFrame = stack.peek();
 
         assert lhs.symbolId != null;
+        A2.dotGraph(assignNode);
         stackFrame.symbolTable.setValue(lhs.symbolId, result);
     }
 
@@ -1228,6 +1235,7 @@ class Interpreter {
                     return stack.peek().symbolTable.getValue(expr.symbolId);
                 } else {
                     // it's a constant
+                    System.out.println("It's a constant");
                     try {
                         return Integer.parseInt(expr.op);
                     } catch (Exception e) {
@@ -1272,6 +1280,14 @@ class Interpreter {
 
         }
 
+    }
+
+    public void evaluate() {
+        Tree ast = parser.parse();
+        SymbolTable mainSymTable = parser.symbolTables.get(0);
+        StackFrame mainStackFrame = new StackFrame(mainSymTable);
+        stack.push(mainStackFrame);
+        evalProgram(ast);
     }
 }
 
@@ -1318,6 +1334,16 @@ class SymbolTable {
             System.out.println("//\t" + i + "\t|\t" + symbols.get(i).toString());
         }
     }
+
+    public int findSymbol(String symbolName) {
+        for (int i = 0; i < symbols.size(); i++) {
+            Symbol symbol = symbols.get(i);
+            if (symbol.symbol.equals(symbolName)) {
+                return i;
+            }
+        }
+        return -1;
+    }
 }
 
 class FunctionSymbol {
@@ -1362,7 +1388,7 @@ class A2 {
         int newCount = count;
 
         String parentNode = "a" + count;
-        System.out.println("  " + parentNode + " [label=\"" + tree.op + "\"]");
+        System.out.println("  " + parentNode + " [label=\"" + tree.op + ": " + tree.symbolId + "\"]");
         for (Tree c : tree.children) {
             if (c instanceof Leaf) {
                 System.out.println("  node [shape=underline];");
@@ -1374,14 +1400,15 @@ class A2 {
             System.out.println("  " + parentNode + " -> " + childNode + ";");
             newCount = dotRecurse(c, newCount);
         }
-        ;
         return newCount;
     }
 
     static void dotGraph(Tree tree) {
+        System.out.println("");
         System.out.println("digraph AST {");
         dotRecurse(tree, 0);
         System.out.println("}");
+        System.out.print("//");
     }
 
     static void dumpSymbolTable(Parser parser) {
@@ -1401,15 +1428,13 @@ class A2 {
 
     public static void main(String[] args) {
         //try {
-        System.out.print("// ");
         Parser parser = new Parser();
-        Tree parseTree = parser.parse();
-        System.out.println();
         Interpreter interpreter = new Interpreter(parser);
-
-        if (args.length > 0) {
-            dotGraph(parseTree);
-        }
+        System.out.print("// ");
+        interpreter.evaluate();
+        //if (args.length > 0) {
+        //    dotGraph(parseTree);
+        //}
 
         dumpSymbolTable(parser);
         //} catch (Exception e) {
