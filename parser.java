@@ -780,7 +780,9 @@ class Parser {
             match(TokenType.OPAREN, "");
             Tree fcall = new Tree("fcall");
             fcall.symbolId = getFuncSymbolId(functionName.op);
-             fcall.addChild(functionName);
+
+            fcall.addChild(functionName);
+
             fcall.addChild(exprseq(null));
             match(TokenType.CPAREN, "Missing )");
             return fcall;
@@ -1032,14 +1034,18 @@ class Interpreter {
         this.parser = parser;
     }
 
-
     private void evalProgram(Tree program) {
         assert program.op == "program";
         evalStatementSeq(program.children.get(2));
 
     }
 
-    private void evalStatementSeq(Tree statementSeq) {
+    /**
+     * @param statementSeq
+     * @return True if returning from function; False if continuing in function
+     */
+    private boolean evalStatementSeq(Tree statementSeq) {
+
         assert statementSeq.op == "statement_seq";
 
 
@@ -1049,31 +1055,88 @@ class Interpreter {
                     evalAssign(child);
                     break;
                 case "if":
-                    evalIf(child);
+                    if (evalIf(child)) {
+                        return true;
+                    }
                     break;
                 case "while":
-                    evalWhile(child);
+                    if (evalWhile(child)) {
+                        return true;
+                    }
                     break;
                 case "print":
                     evalPrint(child);
                     break;
                 case "return":
                     evalReturn(child);
-                    break;
+                    return true;
             }
         }
+        return false;
     }
 
     private void evalReturn(Tree returnNode) {
-
+        Object result = evalExpr(returnNode.children.get(0));
+        stack.peek().returnValue = result;
     }
 
     private void evalPrint(Tree print) {
-
+        Object result = evalExpr(print.children.get(0));
+        System.out.println(result);
     }
 
-    private void evalWhile(Tree whileNode) {
+    private boolean evalWhile(Tree whileNode) {
+        Tree bexpr = whileNode.children.get(0);
 
+        while (evalBexpr(bexpr)) {
+            if (evalStatementSeq(whileNode.children.get(1))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean evalBexpr(Tree bexpr) {
+        double lhs, rhs;
+        boolean blhs, brhs;
+        switch (bexpr.op) {
+            case "==":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs == rhs;
+            case "<>":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs != rhs;
+            case "<":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs < rhs;
+            case ">":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs > rhs;
+            case "<=":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs <= rhs;
+            case ">=":
+                lhs = (Double) evalExpr(bexpr.children.get(0));
+                rhs = (Double) evalExpr(bexpr.children.get(1));
+                return lhs >= rhs;
+            case "or":
+                blhs = evalBexpr(bexpr.children.get(0));
+                brhs = evalBexpr(bexpr.children.get(1));
+                return blhs || brhs;
+            case "and":
+                blhs = evalBexpr(bexpr.children.get(0));
+                brhs = evalBexpr(bexpr.children.get(1));
+                return blhs && brhs;
+            case "not":
+                blhs = evalBexpr(bexpr.children.get(0));
+                return !blhs;
+        }
+        throw new IllegalStateException();
     }
 
     private void evalAssign(Tree assignNode) {
@@ -1091,52 +1154,98 @@ class Interpreter {
     }
 
     private Object evalExpr(Tree expr) {
-        for (Tree child : expr.children) {
-            Object lhs;
-            Object rhs;
-            switch (child.op) {
-                case "+":
-                    lhs = evalExpr(child.children.get(0));
-                    rhs = evalExpr(child.children.get(1));
+        Object lhs;
+        Object rhs;
+        switch (expr.op) {
+            case "+":
+                lhs = evalExpr(expr.children.get(0));
+                rhs = evalExpr(expr.children.get(1));
 
-                    if (lhs instanceof Integer && rhs instanceof Integer) {
-                        Integer lInt = (Integer) lhs;
-                        Integer rInt = (Integer) rhs;
-                        return lInt + rInt;
-                    } else {
-                        Double lDouble = (Double) lhs;
-                        Double rDouble = (Double) rhs;
-                        return lDouble + rDouble;
-                    }
-                case "-":
-                    lhs = evalExpr(child.children.get(0));
-                    rhs = evalExpr(child.children.get(1));
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt + rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble + rDouble;
+                }
+            case "-":
+                lhs = evalExpr(expr.children.get(0));
+                rhs = evalExpr(expr.children.get(1));
 
-                    if (lhs instanceof Integer && rhs instanceof Integer) {
-                        Integer lInt = (Integer) lhs;
-                        Integer rInt = (Integer) rhs;
-                        return lInt - rInt;
-                    } else {
-                        Double lDouble = (Double) lhs;
-                        Double rDouble = (Double) rhs;
-                        return lDouble - rDouble;
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt - rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble - rDouble;
+                }
+            case "*":
+                lhs = evalExpr(expr.children.get(0));
+                rhs = evalExpr(expr.children.get(1));
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt * rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble * rDouble;
+                }
+            case "/":
+                lhs = evalExpr(expr.children.get(0));
+                rhs = evalExpr(expr.children.get(1));
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt / rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble / rDouble;
+                }
+            case "%":
+                lhs = evalExpr(expr.children.get(0));
+                rhs = evalExpr(expr.children.get(1));
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt % rInt;
+                } else {
+                    throw new IllegalStateException("Can't modulo with doubles");
+                }
+            case "fcall":
+                return evalFcall(expr);
+            default:
+                if (expr.symbolId != null) {
+                    // it's a var
+                    return stack.peek().symbolTable.getValue(expr.symbolId);
+                } else {
+                    // it's a constant
+                    try {
+                        return Integer.parseInt(expr.op);
+                    } catch (Exception e) {
+                        return Double.parseDouble(expr.op);
                     }
-                case "*":
-                    
-                case "/":
-                case "%":
-                case "fcall":
-                    return evalFcall(expr);
-                    default:
-                        throw new UnsupportedOperationException();
-            }
+                }
         }
-        throw new IllegalStateException();
     }
 
-    private void evalIf(Tree child) {
-
-
+    private boolean evalIf(Tree ifNode) {
+        boolean result = false;
+        Tree condition = ifNode.children.get(0);
+        if (evalBexpr(condition)) {
+            result = evalStatementSeq(ifNode.children.get(1));
+        } else if (ifNode.children.size() == 3) {
+            result = evalStatementSeq(ifNode.children.get(2));
+        }
+        return result;
     }
 
     private Object evalFcall(Tree funcCall){
@@ -1197,7 +1306,8 @@ class SymbolTable {
 
     SymbolTable createBlankSymbolTable() {
         SymbolTable symbolTable = new SymbolTable();
-        for (Symbol sym: symbols) {
+
+        for (Symbol sym : symbols) {
             symbolTable.createSymbol(sym.symbol, sym.symbolType, 0);
         }
         return symbolTable;
