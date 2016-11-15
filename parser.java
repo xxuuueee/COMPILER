@@ -311,24 +311,27 @@ class Parser {
     return new Leaf(t);
   }
 
-  private Tree fdecls() {
+  private Tree fdecls(Tree parent) {
     // <fdecls> ::= <fdec>; <fdecls> | ε
     TokenType[] FDEC_FIRST = {TokenType.DEF};
     TokenType[] FOLLOW = {TokenType.TYPE_INT, TokenType.TYPE_DOUBLE, TokenType.IF, TokenType.WHILE, TokenType.PRINT, TokenType.RETURN, TokenType.ID, TokenType.SEMICOLON};
-    Tree root = new Tree("fdecls");
+    
+    if (parent == null) {
+	parent = new Tree("fdecls");
+    }
 
     Token ll = lookAhead();
     if (in(FDEC_FIRST, ll.type)) {
       //<fdec>; <fdecls>
-      root.addChild(fdec());
+      parent.addChild(fdec());
       match(TokenType.SEMICOLON, "Expected ';'");
-      root.addChild(fdecls());
+      return fdecls(parent);
     } else if (in(FOLLOW, ll.type)) {
       //not needed
     } else {
       error(ll);
     }
-    return root;
+    return parent;
   }
 
   private Tree fdec() {
@@ -770,7 +773,6 @@ class Parser {
       return fcall;
     } else if (in(FOLLOW, ll.type)) {
       return functionName;
-      // is ok now :)
     } else {
       error(ll);
     }
@@ -978,7 +980,7 @@ class Parser {
 
   private Tree program() {
     Tree program = new Tree("program");
-    program.addChild(fdecls());
+    program.addChild(fdecls(null));
     currFunc = 0;
     program.addChild(declarations(null));
     program.addChild(statement_seq(null));
