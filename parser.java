@@ -1,4 +1,5 @@
 import java.io.*;
+import java.lang.reflect.Array;
 import java.util.*;
 
 class Tree {
@@ -378,10 +379,12 @@ class Parser {
       typeList.add(ll.type);
       root.addChild(type());
       Token varToken = lookAhead();
-      root.addChild(var());
+        Tree var = var();
+      root.addChild(var);
       TokenType symType=ll.type;
       Symbol variable = new Symbol(varToken.lexeme,symType,0);
       symbolTables.get(currFunc).add(variable);
+        var.symbolId = symbolTables.get(currFunc).size()-1;
       root.addChild(params_list(typeList));
 
 
@@ -490,7 +493,9 @@ class Parser {
     if (in(FIRST, ll.type)) {
       Symbol variable = new Symbol(ll.lexeme, symType,0);
       symbolTables.get(currFunc).add(variable);
-      root.addChild(var());
+        Tree var = var();
+      root.addChild(var);
+        var.symbolId = symbolTables.get(currFunc).size()-1;
       varlistPrime(root, symType);
     } else {
       error(ll);
@@ -619,6 +624,7 @@ class Parser {
       match(TokenType.FI, "Expected fi");
       return ifHead;
     } else if (in(ELSE_FIRST, ll.type)) {
+        match(TokenType.ELSE,"");
       ifHead.addChild(statement_seq(null));
       match(TokenType.FI, "Expected fi");
       return ifHead;
@@ -982,7 +988,7 @@ class Parser {
     currFunc = 0;
     program.addChild(declarations(null));
     program.addChild(statement_seq(null));
-    program.addChild(match(TokenType.PERIOD, "Expected period"));
+    match(TokenType.PERIOD, "Expected period");
     return program;
   }
 
@@ -1007,6 +1013,115 @@ class Parser {
     throw new RuntimeException(msg);
   }
 
+}
+
+class Interpreter{
+    Tree ast;
+
+    Interpreter(Tree ast){
+        this.ast=ast;
+    }
+
+
+    private void evalProgram(Tree program){
+        assert program.op == "program";
+
+
+
+        }
+
+    private void evalStatementSeq(Tree statementSeq, ArrayList<Symbol> symbolTable){
+        assert statementSeq.op == "statement_seq";
+
+
+        for (Tree child: statementSeq.children){
+            switch (child.op){
+                case "=":  evalAssign(child,symbolTable);
+                    break;
+
+                case "if": evalIf(child,symbolTable);
+                    break;
+                case "while": evalWhile(child,symbolTable);
+                    break;
+                case "print": evalPrint(child, symbolTable);
+                    break;
+                case "return": evalReturn(child, symbolTable);
+                    break;
+
+            }
+        }
+    }
+
+    private void evalAssign(Tree child, ArrayList<Symbol> symbolTable){
+        Tree lhs = child.children.get(0);
+        if (lhs.op.equals("arrayIndex")) {
+            throw new IllegalStateException("We don't support array indexing");
+        }
+        // lhs is a leaf!!
+
+        Tree rhs = child.children.get(1);
+        Leaf var = (Leaf) lhs;
+        Object result = evalExpr(rhs, symbolTable);
+        Symbol symbol = symbolTable.get(var.symbolId);
+        if (symbol.symbolType==TokenType.TYPE_DOUBLE){
+            Double rDouble = (Double) result;
+            symbol.value = rDouble;
+
+        }
+
+        else{
+            Integer rInt = (Integer) result;
+            symbol.value = rInt;
+        }
+    }
+
+    private Object evalExpr(Tree expr, ArrayList<Symbol> symbolTable){
+
+
+        for (Tree child: expr.children){
+            Object lhs;
+            Object rhs;
+            switch (child.op){
+                case "+":
+                    lhs = child.children.get(0);
+                    rhs = child.children.get(1);
+
+                    if (lhs instanceof Integer && rhs instanceof  Integer){
+                        Integer lInt = (Integer) lhs;
+                        Integer rInt = (Integer) rhs;
+                        return lInt+rInt;
+                    }
+                    else{
+                        Double lDouble = (Double) lhs;
+                        Double rDouble = (Double) rhs;
+                        return lDouble + rDouble;
+                    }
+
+                case "-":
+                    lhs = child.children.get(0);
+                    rhs = child.children.get(1);
+
+                    if(lhs instanceof Integer && rhs instanceof Integer){
+                        Integer lInt = (Integer) lhs;
+                        Integer rInt = (Integer) rhs;
+                        return lInt - rInt;
+                    }
+
+                    else{
+                        Double lDouble = (Double) lhs;
+                        Double rDouble = (Double) rhs;
+                        return lDouble - rDouble;
+                    }
+
+
+            }
+        }
+    }
+
+    private void evalIf(Tree child, ArrayList<Symbol> symbolTable){
+
+
+    }
 }
 
 class FunctionSymbol{
