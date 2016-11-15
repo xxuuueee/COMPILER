@@ -286,7 +286,7 @@ class Parser {
         for (int i = 0; i < funcSymbolTable.size(); i++) {
             FunctionSymbol fSymbol = funcSymbolTable.get(i);
             if (fSymbol.fname.equals(fname)) {
-                return i;
+                return i + 1;
             }
         }
         throw new IllegalStateException("Function name doesn't exist");
@@ -364,7 +364,7 @@ class Parser {
             symbolTables.put(currFunc, new SymbolTable());
             ArrayList<TokenType> paramList = new ArrayList<>();
             params(paramList);
-            FunctionSymbol func = new FunctionSymbol(funcName, returnType, paramList);
+            FunctionSymbol func = new FunctionSymbol(funcName, returnType, paramList, root);
             funcSymbolTable.add(func);
 
             root.symbolId = currFunc;
@@ -779,6 +779,7 @@ class Parser {
         if (in(FIRST, ll.type)) {
             match(TokenType.OPAREN, "");
             Tree fcall = new Tree("fcall");
+            fcall.symbolId = getFuncSymbolId(functionName.op);
              fcall.addChild(functionName);
             fcall.addChild(exprseq(null));
             match(TokenType.CPAREN, "Missing )");
@@ -1024,11 +1025,11 @@ class Parser {
 }
 
 class Interpreter {
-    Tree ast;
+    Parser parser;
     Stack<StackFrame> stack = new Stack<>();
 
-    Interpreter(Tree ast) {
-        this.ast = ast;
+    Interpreter(Parser parser) {
+        this.parser = parser;
     }
 
 
@@ -1121,9 +1122,11 @@ class Interpreter {
                         return lDouble - rDouble;
                     }
                 case "*":
+                    
                 case "/":
                 case "%":
                 case "fcall":
+                    return evalFcall(expr);
                     default:
                         throw new UnsupportedOperationException();
             }
@@ -1133,6 +1136,32 @@ class Interpreter {
 
     private void evalIf(Tree child) {
 
+
+    }
+
+    private Object evalFcall(Tree funcCall){
+
+        SymbolTable symTable = parser.symbolTables.get(funcCall.symbolId).createBlankSymbolTable();
+        FunctionSymbol fSymbol = parser.funcSymbolTable.get(funcCall.symbolId-1);
+        StackFrame stackFrame = new StackFrame(symTable);
+
+        evalExprseq(funcCall.children.get(1), stackFrame);
+        stack.push(stackFrame);
+        evalStatementSeq(fSymbol.fdec.children.get(1));
+        Object result= stackFrame.returnValue;
+        stack.pop();
+        return result;
+
+    }
+
+    private void evalExprseq(Tree exprSeq, StackFrame stackFrame){
+
+        int i;
+        for (i=0; i<=exprSeq.children.size() ; i++ ){
+            Object result = evalExpr(exprSeq.children.get(i));
+            stackFrame.symbolTable.setValue(i, result);
+
+        }
 
     }
 }
@@ -1166,12 +1195,12 @@ class SymbolTable {
         return symbols.size() - 1;
     }
 
-    SymbolTable createStackFrame() {
-        SymbolTable stackFrame = new SymbolTable();
+    SymbolTable createBlankSymbolTable() {
+        SymbolTable symbolTable = new SymbolTable();
         for (Symbol sym: symbols) {
-            stackFrame.createSymbol(sym.symbol, sym.symbolType, 0);
+            symbolTable.createSymbol(sym.symbol, sym.symbolType, 0);
         }
-        return stackFrame;
+        return symbolTable;
     }
 
     public void pprint() {
@@ -1185,11 +1214,13 @@ class FunctionSymbol {
     String fname;
     TokenType returnType;
     ArrayList<TokenType> paramTypes;
+    Tree fdec;
 
-    FunctionSymbol(String fname, TokenType returnType, ArrayList<TokenType> paramTypes) {
+    FunctionSymbol(String fname, TokenType returnType, ArrayList<TokenType> paramTypes, Tree fdec) {
         this.fname = fname;
         this.returnType = returnType;
         this.paramTypes = paramTypes;
+        this.fdec = fdec;
     }
 
     public String toString() {
@@ -1264,6 +1295,7 @@ class A2 {
         Parser parser = new Parser();
         Tree parseTree = parser.parse();
         System.out.println();
+        Interpreter interpreter = new Interpreter(parser);
 
         if (args.length > 0) {
             dotGraph(parseTree);
