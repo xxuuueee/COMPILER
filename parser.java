@@ -275,7 +275,7 @@ class Parser {
     ArrayList<FunctionSymbol> funcSymbolTable = new ArrayList<>();
     int currFunc = -1;
     HashMap<Integer, SymbolTable> symbolTables = new HashMap<>();
-
+    Tree ast;
 
     Parser() {
         lexer = new Lex();
@@ -736,7 +736,8 @@ class Parser {
             root.addChild(factor());
             return termPrime(root);
         } else if (in(MOD_FIRST, ll.type)) {
-            root.addChild(match(TokenType.MOD, "Expected %"));
+            root.op = "%";
+            match(TokenType.MOD, "Expected %");
             root.addChild(factor());
             return termPrime(root);
         } else if (in(FOLLOW, ll.type)) {
@@ -850,7 +851,7 @@ class Parser {
     }
 
     private Tree bexprPrime(Tree lhs) {
-        // <bexpr’> := or <bexpr’> | ε
+        // <bexpr’> := or <bexpr> | ε
         TokenType[] FIRST = {TokenType.OR};
         TokenType[] FOLLOW = {TokenType.CPAREN, TokenType.THEN, TokenType.DO};
 
@@ -860,7 +861,7 @@ class Parser {
             match(TokenType.OR, "");
             root = new Tree("or");
             root.addChild(lhs);
-            return bexprPrime(root);
+            root.addChild(bexpr());
         } else if (in(FOLLOW, ll.type)) {
             return lhs;
         } else {
@@ -890,14 +891,15 @@ class Parser {
     private Tree btermPrime(Tree lhs) {
         // <bterm’> ::= and <bfactor><bterm’> | ε
         TokenType[] FIRST = {TokenType.AND};
-        TokenType[] FOLLOW = {TokenType.CPAREN, TokenType.THEN, TokenType.DO};
+        TokenType[] FOLLOW = {TokenType.CPAREN, TokenType.THEN, TokenType.DO, TokenType.OR};
 
         Tree root = null;
         Token ll = lookAhead();
         if (in(FIRST, ll.type)) {
-            root.addChild(match(TokenType.AND, ""));
+            match(TokenType.AND, "");
             root = new Tree("and");
             root.addChild(lhs);
+            root.addChild(bfactor());
             return btermPrime(root);
         } else if (in(FOLLOW, ll.type)) {
             return lhs;
@@ -1010,7 +1012,8 @@ class Parser {
     }
 
     Tree parse() {
-        return program();
+        ast = program();
+        return ast;
     }
 
     private Tree match(TokenType type, String errMsg) {
@@ -1031,6 +1034,8 @@ class Parser {
     }
 
 }
+
+
 
 class Interpreter {
     Parser parser;
@@ -1088,7 +1093,7 @@ class Interpreter {
 
     private void evalPrint(Tree print) {
         Object result = evalExpr(print.children.get(0));
-        System.out.println(result);
+        System.out.println("// " + result);
     }
 
     private boolean evalWhile(Tree whileNode) {
@@ -1102,33 +1107,41 @@ class Interpreter {
         return false;
     }
 
+    private Double toDouble(Object o) {
+        if (o instanceof Double) {
+            return (Double) o;
+        } else {
+            return ((Integer) o).doubleValue();
+        }
+    }
+
     private boolean evalBexpr(Tree bexpr) {
         double lhs, rhs;
         boolean blhs, brhs;
         switch (bexpr.op) {
             case "==":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs == rhs;
             case "<>":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs != rhs;
             case "<":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs < rhs;
             case ">":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs > rhs;
             case "<=":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs <= rhs;
             case ">=":
-                lhs = (Double) evalExpr(bexpr.children.get(0));
-                rhs = (Double) evalExpr(bexpr.children.get(1));
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
                 return lhs >= rhs;
             case "or":
                 blhs = evalBexpr(bexpr.children.get(0));
@@ -1156,7 +1169,6 @@ class Interpreter {
         StackFrame stackFrame = stack.peek();
 
         assert lhs.symbolId != null;
-        A2.dotGraph(assignNode);
         stackFrame.symbolTable.setValue(lhs.symbolId, result);
     }
 
@@ -1173,8 +1185,8 @@ class Interpreter {
                     Integer rInt = (Integer) rhs;
                     return lInt + rInt;
                 } else {
-                    Double lDouble = (Double) lhs;
-                    Double rDouble = (Double) rhs;
+                    Double lDouble = toDouble(lhs);
+                    Double rDouble = toDouble(rhs);
                     return lDouble + rDouble;
                 }
             case "-":
@@ -1232,10 +1244,10 @@ class Interpreter {
             default:
                 if (expr.symbolId != null) {
                     // it's a var
-                    return stack.peek().symbolTable.getValue(expr.symbolId);
+                    Object value = stack.peek().symbolTable.getValue(expr.symbolId);
+                    return value;
                 } else {
                     // it's a constant
-                    System.out.println("It's a constant");
                     try {
                         return Integer.parseInt(expr.op);
                     } catch (Exception e) {
@@ -1272,9 +1284,7 @@ class Interpreter {
     }
 
     private void evalExprseq(Tree exprSeq, StackFrame stackFrame){
-
-        int i;
-        for (i=0; i<=exprSeq.children.size() ; i++ ){
+        for (int i=0; i < exprSeq.children.size() ; i++ ){
             Object result = evalExpr(exprSeq.children.get(i));
             stackFrame.symbolTable.setValue(i, result);
 
@@ -1284,9 +1294,12 @@ class Interpreter {
 
     public void evaluate() {
         Tree ast = parser.parse();
+
         SymbolTable mainSymTable = parser.symbolTables.get(0);
         StackFrame mainStackFrame = new StackFrame(mainSymTable);
         stack.push(mainStackFrame);
+
+        System.out.println("PROGRAM OUTPUT:");
         evalProgram(ast);
     }
 }
@@ -1307,7 +1320,7 @@ class SymbolTable {
     }
 
     Object getValue(int id) {
-        return symbols.get(id);
+        return symbols.get(id).value;
     }
 
     void setValue(int id, Object value) {
@@ -1432,11 +1445,9 @@ class A2 {
         Interpreter interpreter = new Interpreter(parser);
         System.out.print("// ");
         interpreter.evaluate();
-        //if (args.length > 0) {
-        //    dotGraph(parseTree);
-        //}
-
-        dumpSymbolTable(parser);
+        if (args.length > 0) {
+            dotGraph(parser.ast);
+        }
         //} catch (Exception e) {
         //  System.out.println("\n//There was an error parsing:\n//  " + e.getMessage());
         //}
