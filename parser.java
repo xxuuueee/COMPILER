@@ -1,10 +1,17 @@
+import org.apache.bcel.generic.*;
+
 import java.io.*;
 import java.util.*;
+
+import static org.apache.bcel.Const.ACC_PUBLIC;
+import static org.apache.bcel.Const.ACC_STATIC;
+import static org.apache.bcel.Const.ACC_SUPER;
 
 class Tree {
     ArrayList<Tree> children;
     String op;
     Integer symbolId;
+    Type type;
 
     Tree(String op) {
         children = new ArrayList<>();
@@ -363,8 +370,9 @@ class Parser {
             currFunc = funcSymbolTable.size() + 1;
             symbolTables.put(currFunc, new SymbolTable());
             ArrayList<TokenType> paramList = new ArrayList<>();
-            params(paramList);
-            FunctionSymbol func = new FunctionSymbol(funcName, returnType, paramList, root);
+            ArrayList<String> nameList = new ArrayList<>();
+            params(paramList, nameList);
+            FunctionSymbol func = new FunctionSymbol(funcName, returnType, paramList, nameList, root);
             funcSymbolTable.add(func);
 
             root.symbolId = currFunc;
@@ -379,7 +387,7 @@ class Parser {
         return root;
     }
 
-    private Tree params(ArrayList<TokenType> typeList) {
+    private Tree params(ArrayList<TokenType> typeList, ArrayList<String> nameList) {
         // <params> ::= <type> <var> <params_list> | ε
         TokenType[] FIRST = {TokenType.TYPE_INT, TokenType.TYPE_DOUBLE};
         TokenType[] FOLLOW = {TokenType.CPAREN};
@@ -395,8 +403,9 @@ class Parser {
             Tree var = var();
             root.addChild(var);
             TokenType symType = ll.type;
+            nameList.add(varToken.lexeme);
             var.symbolId = symbolTables.get(currFunc).createSymbol(varToken.lexeme, symType, 0);
-            root.addChild(params_list(typeList));
+            root.addChild(params_list(typeList,nameList));
 
 
         } else if (in(FOLLOW, ll.type)) {
@@ -407,7 +416,7 @@ class Parser {
         return root;
     }
 
-    private Tree params_list(ArrayList<TokenType> typeList) {
+    private Tree params_list(ArrayList<TokenType> typeList, ArrayList<String> nameList) {
         // <params_list> ::= , <params> | ε
         TokenType[] FIRST = {TokenType.COMMA};
         TokenType[] FOLLOW = {TokenType.CPAREN};
@@ -416,7 +425,7 @@ class Parser {
         Token ll = lookAhead();
         if (in(FIRST, ll.type)) {
             match(TokenType.COMMA, "Expected ','");
-            root.addChild(params(typeList));
+            root.addChild(params(typeList, nameList));
         } else if (in(FOLLOW, ll.type)) {
             root.addChild(epsilon());
         } else {
@@ -654,9 +663,6 @@ class Parser {
         Tree root = null;
         Token ll = lookAhead();
         if (in(FIRST, ll.type)) {
-            if (ll.type == TokenType.MINUS) {
-                root = new Leaf(getNextToken());
-            }
             Tree term = term();
             if (root == null) {
                 return exprPrime(term);
@@ -1037,6 +1043,365 @@ class Parser {
 
 
 
+class Compiler {
+    Parser parser;
+    InstructionFactory factory;
+    ConstantPoolGen cp;
+    ClassGen cg;
+
+    Compiler(Parser parser) {
+        this.parser = parser;
+        this.cg = new ClassGen("gen_class", "java.lang.Object", "gen_class.java", ACC_PUBLIC | ACC_SUPER, new String[] {  });
+        this.cp = cg.getConstantPool();
+        this.factory = new InstructionFactory(cg,cp);
+    }
+
+
+    private void createMethod(Tree fdec){
+        InstructionList il = new InstructionList();
+        FunctionSymbol fsymbol = parser.funcSymbolTable.get(fdec.symbolId);
+
+        Type[] paramTypes = new Type[fsymbol.paramTypes.size()];
+
+        for(int i=0; i>= fsymbol.paramTypes.size(); i++){
+            paramTypes[i] = mapType(fsymbol.paramTypes.get(i));
+        }
+
+        MethodGen method = new MethodGen(ACC_PUBLIC | ACC_STATIC, mapType(fsymbol.returnType), paramTypes, (String[]) fsymbol.nameList.toArray(), fsymbol.fname, "gen_class", il, cp);
+
+        compileStatementSeq(fdec.children.get(1), il, parser.symbolTables.get(fdec.symbolId));
+
+
+        cg.addMethod(method.getMethod());
+        il.dispose();
+    }
+
+    private void compileProgram(Tree program) {
+        assert program.op == "program";
+
+        for(Tree fdec: program.children.get(0).children) {
+            createMethod(fdec);
+        }
+
+        //compileStatementSeq(program.children.get(2), il, parser.symbolTables.get(fdec.symbolId));
+
+    }
+
+    public static Type mapType(TokenType tt){
+        switch(tt){
+            case TYPE_DOUBLE:
+                return Type.DOUBLE;
+            case TYPE_INT:
+                return Type.INT;
+            case
+
+        }
+
+    }
+
+
+
+    /**
+     * @param statementSeq
+     * @return True if returning from function; False if continuing in function
+     */
+    private boolean compileStatementSeq(Tree statementSeq, InstructionList il, SymbolTable symtable) {
+
+        assert statementSeq.op == "statement_seq";
+
+
+        for (Tree child : statementSeq.children) {
+            switch (child.op) {
+                case "=":
+                    compileAssign(child, il, symtable);
+                    break;
+                case "if":
+                    if (compileIf(child, il, symtable)) {
+                        return true;
+                    }
+                    break;
+                case "while":
+                    if (compileWhile(child, il, symtable)) {
+                        return true;
+                    }
+                    break;
+                case "print":
+                    compilePrint(child, il, symtable);
+                    break;
+                case "return":
+                    compileReturn(child, il, symtable);
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private void evalReturn(Tree returnNode) {
+        Object result = evalExpr(returnNode.children.get(0));
+        stack.peek().returnValue = result;
+    }
+
+    private void evalPrint(Tree print) {
+        Object result = evalExpr(print.children.get(0));
+        System.out.println("// " + result);
+    }
+
+    private boolean evalWhile(Tree whileNode) {
+        Tree bexpr = whileNode.children.get(0);
+
+        while (evalBexpr(bexpr)) {
+            if (evalStatementSeq(whileNode.children.get(1))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Double toDouble(Object o) {
+        if (o instanceof Double) {
+            return (Double) o;
+        } else {
+            return ((Integer) o).doubleValue();
+        }
+    }
+
+    private boolean evalBexpr(Tree bexpr) {
+        double lhs, rhs;
+        boolean blhs, brhs;
+        switch (bexpr.op) {
+            case "==":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs == rhs;
+            case "<>":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs != rhs;
+            case "<":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs < rhs;
+            case ">":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs > rhs;
+            case "<=":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs <= rhs;
+            case ">=":
+                lhs = toDouble(evalExpr(bexpr.children.get(0)));
+                rhs = toDouble(evalExpr(bexpr.children.get(1)));
+                return lhs >= rhs;
+            case "or":
+                blhs = evalBexpr(bexpr.children.get(0));
+                brhs = evalBexpr(bexpr.children.get(1));
+                return blhs || brhs;
+            case "and":
+                blhs = evalBexpr(bexpr.children.get(0));
+                brhs = evalBexpr(bexpr.children.get(1));
+                return blhs && brhs;
+            case "not":
+                blhs = evalBexpr(bexpr.children.get(0));
+                return !blhs;
+        }
+        throw new IllegalStateException();
+    }
+
+    private void compileAssign(Tree assignNode, InstructionList il, SymbolTable symtable) {
+        Tree lhs = assignNode.children.get(0);
+        if (lhs.op.equals("arrayIndex")) {
+            throw new IllegalStateException("We don't support array indexing");
+        }
+
+        Tree rhs = assignNode.children.get(1);
+        compileExpr(rhs, il, symtable);
+
+        assert lhs.symbolId != null;
+        Symbol sym = symtable.symbols.get(lhs.symbolId);
+        il.append(factory.createStore(mapType(sym.symbolType), lhs.symbolId));
+    }
+
+    private TokenType compileExpr(Tree expr, InstructionList il, SymbolTable symtable) {
+        TokenType lhs;
+        TokenType rhs;
+        switch (expr.op) {
+            case "+":
+                lhs = compileExpr(expr.children.get(0), il, symtable);
+                rhs = compileExpr(expr.children.get(1), il, symtable);
+
+
+
+                if (lhs == TokenType.TYPE_INT && rhs == TokenType.TYPE_INT) {
+
+                    il.append(InstructionConst.IADD);
+                    return TokenType.TYPE_INT;
+                } else {
+                    Double lDouble = toDouble(lhs);
+                    Double rDouble = toDouble(rhs);
+
+                    il.append(InstructionConst.DADD);
+                }
+            case "-":
+                lhs = compileExpr(expr.children.get(0), il, symtable);
+                rhs = compileExpr(expr.children.get(1), il, symtable);
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt - rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble - rDouble;
+                }
+            case "*":
+                lhs = compileExpr(expr.children.get(0), il, symtable);
+                rhs = compileExpr(expr.children.get(1), il, symtable);
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt * rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble * rDouble;
+                }
+            case "/":
+                lhs = compileExpr(expr.children.get(0), il, symtable);
+                rhs = compileExpr(expr.children.get(1), il, symtable);
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt / rInt;
+                } else {
+                    Double lDouble = (Double) lhs;
+                    Double rDouble = (Double) rhs;
+                    return lDouble / rDouble;
+                }
+            case "%":
+                lhs = compileExpr(expr.children.get(0), il, symtable);
+                rhs = compileExpr(expr.children.get(1), il, symtable);
+
+                if (lhs instanceof Integer && rhs instanceof Integer) {
+                    Integer lInt = (Integer) lhs;
+                    Integer rInt = (Integer) rhs;
+                    return lInt % rInt;
+                } else {
+                    throw new IllegalStateException("Can't modulo with doubles");
+                }
+            case "fcall":
+                return compileFcall(expr);
+            default:
+                if (expr.symbolId != null) {
+                    // it's a var
+                    Object value = stack.peek().symbolTable.getValue(expr.symbolId);
+                    return value;
+                } else {
+                    // it's a constant
+                    try {
+                        return Integer.parseInt(expr.op);
+                    } catch (Exception e) {
+                        return Double.parseDouble(expr.op);
+                    }
+                }
+        }
+    }
+
+    private boolean compileIf(Tree ifNode) {
+        boolean result = false;
+        Tree condition = ifNode.children.get(0);
+        if (evalBexpr(condition)) {
+            result = compileStatementSeq(ifNode.children.get(1));
+        } else if (ifNode.children.size() == 3) {
+            result = compileStatementSeq(ifNode.children.get(2));
+        }
+        return result;
+    }
+
+    private Object compileFcall(Tree funcCall){
+
+        SymbolTable symTable = parser.symbolTables.get(funcCall.symbolId).createBlankSymbolTable();
+        FunctionSymbol fSymbol = parser.funcSymbolTable.get(funcCall.symbolId-1);
+        StackFrame stackFrame = new StackFrame(symTable);
+
+        evalExprseq(funcCall.children.get(1), stackFrame);
+        stack.push(stackFrame);
+        compileStatementSeq(fSymbol.fdec.children.get(1));
+        Object result= stackFrame.returnValue;
+        stack.pop();
+        return result;
+
+    }
+
+    private void compileExprseq(Tree exprSeq, StackFrame stackFrame){
+        for (int i=0; i < exprSeq.children.size() ; i++ ){
+            Object result = compileExpr(exprSeq.children.get(i));
+            stackFrame.symbolTable.setValue(i, result);
+
+        }
+
+    }
+}
+
+class StackFrame {
+    SymbolTable symbolTable;
+    Object returnValue;
+
+    StackFrame(SymbolTable symTable) {
+        this.symbolTable = symTable;
+    }
+}
+
+class SymbolTable {
+    ArrayList<Symbol> symbols = new ArrayList<Symbol>();
+
+    SymbolTable() {
+    }
+
+    Object getValue(int id) {
+        return symbols.get(id).value;
+    }
+
+    void setValue(int id, Object value) {
+        symbols.get(id).value = value;
+    }
+
+    int createSymbol(String name, TokenType type, Object value) {
+        Symbol sym = new Symbol(name, type, value);
+        symbols.add(sym);
+        return symbols.size() - 1;
+    }
+
+    SymbolTable createBlankSymbolTable() {
+        SymbolTable symbolTable = new SymbolTable();
+
+        for (Symbol sym : symbols) {
+            symbolTable.createSymbol(sym.symbol, sym.symbolType, 0);
+        }
+        return symbolTable;
+    }
+
+    public void pprint() {
+        for (int i = 0; i < symbols.size(); i++) {
+            System.out.println("//\t" + i + "\t|\t" + symbols.get(i).toString());
+        }
+    }
+
+    public int findSymbol(String symbolName) {
+        for (int i = 0; i < symbols.size(); i++) {
+            Symbol symbol = symbols.get(i);
+            if (symbol.symbol.equals(symbolName)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+}
+
+
 class Interpreter {
     Parser parser;
     Stack<StackFrame> stack = new Stack<>();
@@ -1289,11 +1654,65 @@ class Interpreter {
             stackFrame.symbolTable.setValue(i, result);
 
         }
+    }
 
+    public Type propagateTypes(Tree root) {
+
+        Type lhs;
+        Type rhs;
+        switch (root.op) {
+            case "+":
+            case "-":
+            case "*":
+            case "/":
+                lhs = propagateTypes(root.children.get(0));
+                rhs = propagateTypes(root.children.get(1));
+                if (lhs == Type.INT && rhs == Type.INT) {
+                    root.type = Type.INT;
+                    return Type.INT;
+                }
+                root.type = Type.DOUBLE;
+                return Type.DOUBLE;
+            case "%":
+                lhs = propagateTypes(root.children.get(0));
+                rhs = propagateTypes(root.children.get(1));
+
+                if (lhs != Type.INT || rhs != Type.INT) {
+                    throw new IllegalStateException("Can not modulo with doubles");
+                }
+                return Type.INT;
+            case "fcall":
+                return Compiler.mapType(parser.funcSymbolTable.get(root.symbolId).returnType);
+            default:
+                if (root.symbolId != null) {
+                    // it's a var
+                    TokenType type = stack.peek().symbolTable.symbols.get(root.symbolId).symbolType;
+                    return Compiler.mapType(type);
+                } else {
+                    // it's a constant
+                    try {
+                        Integer.parseInt(root.op);
+                        return Type.INT;
+                    } catch (Exception e) {
+                        try {
+                            Double.parseDouble(root.op);
+                            return Type.DOUBLE;
+                        } catch {
+                            for (Tree child: root.children) {
+                                propagateTypes(child);
+                            }
+                            root.type = Type.VOID;
+                            return Type.VOID;
+                        }
+                    }
+                }
+        }
     }
 
     public void evaluate() {
         Tree ast = parser.parse();
+
+        propagateTypes(ast);
 
         SymbolTable mainSymTable = parser.symbolTables.get(0);
         StackFrame mainStackFrame = new StackFrame(mainSymTable);
@@ -1363,12 +1782,14 @@ class FunctionSymbol {
     String fname;
     TokenType returnType;
     ArrayList<TokenType> paramTypes;
+    ArrayList<String> nameList;
     Tree fdec;
 
-    FunctionSymbol(String fname, TokenType returnType, ArrayList<TokenType> paramTypes, Tree fdec) {
+    FunctionSymbol(String fname, TokenType returnType, ArrayList<TokenType> paramTypes, ArrayList<String> nameList, Tree fdec) {
         this.fname = fname;
         this.returnType = returnType;
         this.paramTypes = paramTypes;
+        this.nameList = nameList;
         this.fdec = fdec;
     }
 
